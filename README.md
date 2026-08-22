@@ -1,6 +1,6 @@
 # RadioBOSS SongSync Engine
 
-**Version 1.7.0**
+**Version 1.7.2**
 
 RadioBOSS SongSync Engine reads the RadioBOSS music library from its standard SQLite database or from MySQL/MariaDB and generates secure JSON catalog files for the [RadioBOSS Song Request System](https://github.com/mixnetwork1959/radioboss-song-request-system).
 
@@ -13,7 +13,7 @@ It can automatically upload the generated catalog to a web server using SFTP.
 
 ## Setup Wizard
 
-Version 1.7.0 includes a separate Windows setup application:
+Version 1.7.2 includes a separate Windows setup application:
 
 ```text
 RadioBOSS-SongSync-Setup.exe
@@ -24,7 +24,7 @@ The setup application is built with no console window. It configures the databas
 `RadioBOSS-SongSync.exe` remains the normal console synchronization executable so it can still be used reliably from RadioBOSS events, Task Scheduler and log files.
 
 
-## Windows executables in v1.7.0
+## Windows executables in v1.7.2
 
 The Windows build creates three executables:
 
@@ -64,7 +64,7 @@ It performs the same synchronization but leaves the console visible so error out
 
 Windows users can run SongSync without installing Python or additional packages.
 
-1. Download `RadioBOSS-SongSync-v1.7.0.zip` from the latest GitHub release.
+1. Download `RadioBOSS-SongSync-v1.7.2.zip` from the latest GitHub release.
 2. Extract the ZIP file to a permanent directory, for example:
 
    ```text
@@ -640,7 +640,7 @@ Private and generated files are not included in the repository.
 ## Current versions
 
 ```text
-SongSync Engine:              1.7.0
+SongSync Engine:              1.7.2
 SQLite support:               Built into Python
 MySQL connector (optional):   9.x
 SFTP library:                 AsyncSSH 2.20 or newer

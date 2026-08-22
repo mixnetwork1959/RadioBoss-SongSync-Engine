@@ -39,7 +39,7 @@ https://github.com/mixnetwork1959/RadioBOSS-SongSync-Engine/releases
 
 Choose one of these downloads:
 
-- `RadioBOSS-SongSync-v1.7.0.zip` for the recommended
+- `RadioBOSS-SongSync-v1.7.2.zip` for the recommended
   Windows EXE
 - Source code for users who want to run SongSync with Python
 
@@ -314,7 +314,7 @@ py songsync.py
 A normal start looks similar to:
 
 ```text
-RadioBOSS SongSync Engine v1.7.0
+RadioBOSS SongSync Engine v1.7.2
 Database: <selected SQLite or MySQL/MariaDB database>
 Connecting to RadioBOSS database...
 Connection successful.

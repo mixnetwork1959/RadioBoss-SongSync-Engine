@@ -5,14 +5,16 @@ import os
 import runpy
 import shutil
 import sqlite3
-import subprocess
 import sys
 import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-VERSION = "1.7.0"
+from windows_process import run_without_window
+
+
+VERSION = "1.7.2"
 
 
 def _q(value: str) -> str:
@@ -148,10 +150,13 @@ def test_sftp(values: dict, app_dir: Path) -> tuple[bool, str]:
                    "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={known_hosts}", "-o", f"StrictHostKeyChecking={strict}",
                    f"{values['sftp_username'].strip()}@{values['sftp_host'].strip()}"]
         batch = f'ls "{values["sftp_remote_public_dir"].strip()}"\nls "{values["sftp_remote_private_dir"].strip()}"\nquit\n'
-        startupinfo=None; creationflags=0
-        if os.name=="nt":
-            startupinfo=subprocess.STARTUPINFO(); startupinfo.dwFlags|=subprocess.STARTF_USESHOWWINDOW; startupinfo.wShowWindow=subprocess.SW_HIDE; creationflags=subprocess.CREATE_NO_WINDOW
-        result=subprocess.run(command, input=batch, text=True, capture_output=True, check=False,startupinfo=startupinfo,creationflags=creationflags)
+        result=run_without_window(
+            command,
+            input=batch,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
         if result.returncode != 0:
             return False, (result.stderr or result.stdout).strip() or "OpenSSH SFTP test failed."
         return True, "Windows OpenSSH SFTP test successful."

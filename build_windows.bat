@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ==========================================================
-echo RadioBOSS SongSync Engine v1.7.0 - Final Build
+echo RadioBOSS SongSync Engine v1.7.2 - Final Build
 echo ==========================================================
 echo.
 

@@ -1,6 +1,6 @@
 # ==========================================================
 # RadioBOSS SongSync Engine
-# Version 1.7.0
+# Version 1.7.2
 # songsync.py
 # ==========================================================
 
@@ -14,7 +14,6 @@ import posixpath
 import runpy
 import shutil
 import sqlite3
-import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -24,6 +23,7 @@ from types import SimpleNamespace
 from typing import Iterable
 
 from scheduler_export import create_scheduler_payload
+from windows_process import run_without_window
 
 try:
     import mysql.connector
@@ -43,7 +43,7 @@ except ImportError:
     raise SystemExit(1)
 
 
-VERSION = "1.7.0"
+VERSION = "1.7.2"
 
 
 def application_dir() -> Path:
@@ -771,7 +771,7 @@ def upload_exports_openssh() -> None:
     print()
     print("Connecting to SFTP server with Windows OpenSSH...")
 
-    result = subprocess.run(
+    result = run_without_window(
         command,
         input=batch_input,
         text=True,

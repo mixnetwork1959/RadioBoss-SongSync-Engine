@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.2
+
+- Prevented the Windows OpenSSH `sftp.exe` child process from opening a CMD
+  window during automatic uploads.
+- Reused the same hidden-window process options for live uploads and Setup
+  Wizard connection tests.
+- Added regression tests for Windows and non-Windows subprocess options.
+
 ## 1.7.0
 
 - Added an optional local RadioBOSS `.sdl` scheduler export.
