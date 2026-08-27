@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.8.0
+
+- Standardized private settings on `config.json`.
+- Made the Setup Wizard replace `config.json` atomically and preserve the
+  previous file as `config.json.bak`.
+- Added one-time import of existing `config.py` values when no JSON config
+  exists.
+- Replaced the Windows OpenSSH private-key branch with bundled AsyncSSH on all
+  operating systems.
+- Made the Setup Wizard and live upload create `sftp_known_hosts`
+  automatically after the first trusted, authenticated connection.
+- Resolved relative key and known-hosts paths against the SongSync executable
+  directory.
+- Added regression tests for JSON replacement, legacy migration and SFTP host
+  key creation.
+- Updated the Windows build to PyInstaller 6.22.2 and added an executable
+  onefile Tkinter smoke test, including support for embedded Tcl/Tk data.
+
 ## 1.7.2
 
 - Prevented the Windows OpenSSH `sftp.exe` child process from opening a CMD

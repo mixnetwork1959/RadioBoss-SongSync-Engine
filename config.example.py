@@ -1,11 +1,11 @@
 # ==========================================================
 # RadioBOSS SongSync Engine
-# Version 1.7.0
-# Example configuration
+# Version 1.8.0
+# Legacy Python configuration migration example
 # ==========================================================
 #
-# Copy this file to config.py and enter your own settings.
-# Never upload config.py to GitHub.
+# New installations use config.example.json and the Setup Wizard.
+# This file remains as an example for one-time config.py migration.
 # ==========================================================
 
 
@@ -116,7 +116,7 @@ SFTP_PASSWORD = "CHANGE_ME"
 
 # Optional private-key login. Leave empty when using a
 # password.
-SFTP_PRIVATE_KEY_FILE = ""
+SFTP_PRIVATE_KEY_FILE = "sftp_key"
 SFTP_PRIVATE_KEY_PASSPHRASE = ""
 
 

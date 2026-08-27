@@ -3,6 +3,8 @@
 
 # Private configuration
 config.py
+config.json
+config.json.bak
 
 # Generated exports
 exports/
@@ -19,6 +21,7 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+.songsync-build-venv/
 
 # Logs
 logs/

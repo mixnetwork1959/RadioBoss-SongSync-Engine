@@ -22,5 +22,7 @@ jobs:
       - name: Reject private runtime files
         run: |
           test ! -e config.py
+          test ! -e config.json
+          test ! -e config.json.bak
           test ! -e sftp_key
           test ! -e sftp_known_hosts

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import runpy
-import shutil
 import sqlite3
 import sys
 import traceback
@@ -11,18 +9,11 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from windows_process import run_without_window
+from config_store import load_existing_config, write_json_config
+from sftp_host_keys import save_server_host_key, select_known_hosts
 
 
-VERSION = "1.7.2"
-
-
-def _q(value: str) -> str:
-    return repr(str(value))
-
-
-def _bool(value) -> str:
-    return "True" if bool(value) else "False"
+VERSION = "1.8.0"
 
 
 def _int(value, default: int, minimum: int = 0, maximum: int = 65535) -> int:
@@ -31,15 +22,6 @@ def _int(value, default: int, minimum: int = 0, maximum: int = 65535) -> int:
     except (TypeError, ValueError):
         return default
     return max(minimum, min(maximum, number))
-
-
-def _load_existing(config_path: Path) -> dict:
-    if not config_path.is_file():
-        return {}
-    try:
-        return {k: v for k, v in runpy.run_path(str(config_path)).items() if not k.startswith("__")}
-    except Exception:
-        return {}
 
 
 def find_sqlite_candidates() -> list[Path]:
@@ -110,6 +92,9 @@ async def _test_sftp_async(values: dict, app_dir: Path) -> tuple[bool, str]:
     username = values["sftp_username"].strip(); password = values["sftp_password"]
     key_file = values["sftp_private_key_file"].strip(); passphrase = values["sftp_private_key_passphrase"]
     timeout = _int(values["sftp_timeout"], 20, 1, 120)
+    configured_known_hosts = str(
+        values.get("sftp_known_hosts_file", "sftp_known_hosts")
+    )
     client_keys = []; preferred_auth = "password,keyboard-interactive"
     if key_file:
         key_path = Path(key_file).expanduser()
@@ -118,16 +103,31 @@ async def _test_sftp_async(values: dict, app_dir: Path) -> tuple[bool, str]:
         client_keys = [asyncssh.read_private_key(str(key_path), passphrase=passphrase or None)]
         password = None; preferred_auth = "publickey"
     try:
+        known_hosts_file, known_hosts, trust_first_connection = select_known_hosts(
+            app_dir,
+            configured_known_hosts,
+            bool(values["sftp_trust_on_first_use"]),
+        )
         async with asyncssh.connect(
             host, port=port, username=username, password=password or None,
-            known_hosts=None, client_keys=client_keys, preferred_auth=preferred_auth,
+            known_hosts=known_hosts, client_keys=client_keys, preferred_auth=preferred_auth,
             agent_path=None, login_timeout=timeout,
         ) as connection:
+            if trust_first_connection:
+                save_server_host_key(
+                    connection,
+                    host,
+                    port,
+                    known_hosts_file,
+                )
             async with connection.start_sftp_client() as sftp:
                 public_dir = values["sftp_remote_public_dir"].strip(); private_dir = values["sftp_remote_private_dir"].strip()
                 if not await sftp.isdir(public_dir): return False, f"Remote public directory not found: {public_dir}"
                 if not await sftp.isdir(private_dir): return False, f"Remote private directory not found: {private_dir}"
-        return True, "SFTP connection and remote directories are OK."
+        message = "SFTP connection and remote directories are OK."
+        if trust_first_connection:
+            message += " The server key was saved automatically."
+        return True, message
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
 
@@ -135,76 +135,54 @@ async def _test_sftp_async(values: dict, app_dir: Path) -> tuple[bool, str]:
 def test_sftp(values: dict, app_dir: Path) -> tuple[bool, str]:
     if not values["sftp_enabled"]:
         return True, "SFTP is disabled."
-    if os.name == "nt" and values["sftp_private_key_file"].strip():
-        sftp = shutil.which("sftp")
-        if not sftp: return False, "Windows OpenSSH SFTP was not found."
-        key_path = Path(values["sftp_private_key_file"].strip()).expanduser()
-        if not key_path.is_absolute(): key_path = app_dir / key_path
-        if not key_path.is_file(): return False, f"Private key not found: {key_path}"
-        if values["sftp_private_key_passphrase"]:
-            return False, "OpenSSH batch testing cannot enter a key passphrase. Use ssh-agent or an unencrypted dedicated key."
-        known_hosts = Path(values["sftp_known_hosts_file"].strip() or "sftp_known_hosts")
-        if not known_hosts.is_absolute(): known_hosts = app_dir / known_hosts
-        strict = "accept-new" if values["sftp_trust_on_first_use"] else "yes"
-        command = [sftp, "-q", "-b", "-", "-P", str(_int(values["sftp_port"],22,1,65535)), "-i", str(key_path),
-                   "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={known_hosts}", "-o", f"StrictHostKeyChecking={strict}",
-                   f"{values['sftp_username'].strip()}@{values['sftp_host'].strip()}"]
-        batch = f'ls "{values["sftp_remote_public_dir"].strip()}"\nls "{values["sftp_remote_private_dir"].strip()}"\nquit\n'
-        result=run_without_window(
-            command,
-            input=batch,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return False, (result.stderr or result.stdout).strip() or "OpenSSH SFTP test failed."
-        return True, "Windows OpenSSH SFTP test successful."
     return asyncio.run(_test_sftp_async(values, app_dir))
 
 
-def build_config(v: dict) -> str:
-    return "\n".join([
-        "# ==========================================================",
-        "# RadioBOSS SongSync Engine",
-        f"# Version {VERSION}",
-        "# Generated by Setup Wizard",
-        "# ==========================================================",
-        "# PRIVATE FILE - never upload config.py to GitHub.",
-        "# ==========================================================", "",
-        f"DB_TYPE = {_q(v['db_type'])}",
-        f"SQLITE_MODE = {_q(v['sqlite_mode'])}",
-        f"SQLITE_DATABASE = {_q(v['sqlite_database'])}", "",
-        f"DB_HOST = {_q(v['db_host'])}",
-        f"DB_PORT = {_int(v['db_port'],3306,1,65535)}",
-        f"DB_NAME = {_q(v['db_name'])}",
-        f"DB_USER = {_q(v['db_user'])}",
-        f"DB_PASSWORD = {_q(v['db_password'])}",
-        f"DB_CHARSET = {_q(v['db_charset'] or 'utf8mb4')}", "",
-        f"PUBLIC_EXPORT_DIR = {_q(v['public_export_dir'])}",
-        f"PRIVATE_EXPORT_DIR = {_q(v['private_export_dir'])}", "",
-        f"SCHEDULER_EXPORT_ENABLED = {_bool(v['scheduler_export_enabled'])}",
-        f"SCHEDULER_SDL_FILE = {_q(v['scheduler_sdl_file'])}", "",
-        f"SHOW_EXAMPLES = {_bool(v['show_examples'])}",
-        f"EXAMPLE_LIMIT = {_int(v['example_limit'],10,0,1000)}", "",
-        f"SFTP_ENABLED = {_bool(v['sftp_enabled'])}",
-        f"SFTP_HOST = {_q(v['sftp_host'])}",
-        f"SFTP_PORT = {_int(v['sftp_port'],22,1,65535)}",
-        f"SFTP_USERNAME = {_q(v['sftp_username'])}",
-        f"SFTP_PASSWORD = {_q(v['sftp_password'])}",
-        f"SFTP_PRIVATE_KEY_FILE = {_q(v['sftp_private_key_file'])}",
-        f"SFTP_PRIVATE_KEY_PASSPHRASE = {_q(v['sftp_private_key_passphrase'])}",
-        f"SFTP_REMOTE_PUBLIC_DIR = {_q(v['sftp_remote_public_dir'])}",
-        f"SFTP_REMOTE_PRIVATE_DIR = {_q(v['sftp_remote_private_dir'])}",
-        f"SFTP_TIMEOUT = {_int(v['sftp_timeout'],20,1,120)}",
-        f"SFTP_TRUST_ON_FIRST_USE = {_bool(v['sftp_trust_on_first_use'])}",
-        f"SFTP_KNOWN_HOSTS_FILE = {_q(v['sftp_known_hosts_file'] or 'sftp_known_hosts')}", ""
-    ])
+def build_config(v: dict) -> dict:
+    return {
+        "CONFIG_VERSION": 1,
+        "DB_TYPE": str(v["db_type"]),
+        "SQLITE_MODE": str(v["sqlite_mode"]),
+        "SQLITE_DATABASE": str(v["sqlite_database"]),
+        "DB_HOST": str(v["db_host"]),
+        "DB_PORT": _int(v["db_port"], 3306, 1, 65535),
+        "DB_NAME": str(v["db_name"]),
+        "DB_USER": str(v["db_user"]),
+        "DB_PASSWORD": str(v["db_password"]),
+        "DB_CHARSET": str(v["db_charset"] or "utf8mb4"),
+        "PUBLIC_EXPORT_DIR": str(v["public_export_dir"]),
+        "PRIVATE_EXPORT_DIR": str(v["private_export_dir"]),
+        "SCHEDULER_EXPORT_ENABLED": bool(v["scheduler_export_enabled"]),
+        "SCHEDULER_SDL_FILE": str(v["scheduler_sdl_file"]),
+        "SHOW_EXAMPLES": bool(v["show_examples"]),
+        "EXAMPLE_LIMIT": _int(v["example_limit"], 10, 0, 1000),
+        "SFTP_ENABLED": bool(v["sftp_enabled"]),
+        "SFTP_HOST": str(v["sftp_host"]),
+        "SFTP_PORT": _int(v["sftp_port"], 22, 1, 65535),
+        "SFTP_USERNAME": str(v["sftp_username"]),
+        "SFTP_PASSWORD": str(v["sftp_password"]),
+        "SFTP_PRIVATE_KEY_FILE": str(v["sftp_private_key_file"]),
+        "SFTP_PRIVATE_KEY_PASSPHRASE": str(
+            v["sftp_private_key_passphrase"]
+        ),
+        "SFTP_REMOTE_PUBLIC_DIR": str(v["sftp_remote_public_dir"]),
+        "SFTP_REMOTE_PRIVATE_DIR": str(v["sftp_remote_private_dir"]),
+        "SFTP_TIMEOUT": _int(v["sftp_timeout"], 20, 1, 120),
+        "SFTP_TRUST_ON_FIRST_USE": bool(v["sftp_trust_on_first_use"]),
+        "SFTP_KNOWN_HOSTS_FILE": "sftp_known_hosts",
+    }
 
 
 class SetupWizard(tk.Tk):
     def __init__(self, app_dir: Path):
-        super().__init__(); self.app_dir=app_dir; self.config_path=app_dir/"config.py"; self.existing=_load_existing(self.config_path)
+        super().__init__()
+        self.app_dir = app_dir
+        self.config_path = app_dir / "config.json"
+        self.legacy_config_path = app_dir / "config.py"
+        self.existing = load_existing_config(
+            self.config_path,
+            self.legacy_config_path,
+        )
         self.title(f"RadioBOSS SongSync Setup v{VERSION}"); self.geometry("820x720"); self.minsize(740,640); self.result=False
         self._make_variables(); self.db_test_status=tk.StringVar(value="Not tested yet."); self.sftp_test_status=tk.StringVar(value="Not tested yet."); self.notebook=ttk.Notebook(self); self.notebook.pack(fill="both",expand=True,padx=12,pady=(12,4))
         self._database_tab(); self._export_tab(); self._sftp_tab(); self._review_tab()
@@ -228,7 +206,7 @@ class SetupWizard(tk.Tk):
             "example_limit":tk.StringVar(value=str(self._v("EXAMPLE_LIMIT",10))), "sftp_enabled":tk.BooleanVar(value=bool(self._v("SFTP_ENABLED",False))),
             "sftp_host":tk.StringVar(value=str(self._v("SFTP_HOST","your-sftp-server.example"))), "sftp_port":tk.StringVar(value=str(self._v("SFTP_PORT",22))),
             "sftp_username":tk.StringVar(value=str(self._v("SFTP_USERNAME",""))), "sftp_password":tk.StringVar(value=str(self._v("SFTP_PASSWORD",""))),
-            "sftp_private_key_file":tk.StringVar(value=str(self._v("SFTP_PRIVATE_KEY_FILE",""))), "sftp_private_key_passphrase":tk.StringVar(value=str(self._v("SFTP_PRIVATE_KEY_PASSPHRASE",""))),
+            "sftp_private_key_file":tk.StringVar(value=str(self._v("SFTP_PRIVATE_KEY_FILE","sftp_key" if (self.app_dir / "sftp_key").is_file() else ""))), "sftp_private_key_passphrase":tk.StringVar(value=str(self._v("SFTP_PRIVATE_KEY_PASSPHRASE",""))),
             "sftp_remote_public_dir":tk.StringVar(value=str(self._v("SFTP_REMOTE_PUBLIC_DIR","/path/to/songrequest/data/public"))),
             "sftp_remote_private_dir":tk.StringVar(value=str(self._v("SFTP_REMOTE_PRIVATE_DIR","/path/to/songrequest/data/private"))),
             "sftp_timeout":tk.StringVar(value=str(self._v("SFTP_TIMEOUT",20))), "sftp_trust_on_first_use":tk.BooleanVar(value=bool(self._v("SFTP_TRUST_ON_FIRST_USE",True))),
@@ -276,15 +254,15 @@ class SetupWizard(tk.Tk):
         fields=[("Host","sftp_host",False,None),("Port","sftp_port",False,None),("Username","sftp_username",False,None),("Password","sftp_password",True,None),
                 ("Private key file","sftp_private_key_file",False,self._browse_key),("Key passphrase","sftp_private_key_passphrase",True,None),
                 ("Remote public directory","sftp_remote_public_dir",False,None),("Remote private directory","sftp_remote_private_dir",False,None),
-                ("Timeout (seconds)","sftp_timeout",False,None),("Known hosts file","sftp_known_hosts_file",False,None)]
+                ("Timeout (seconds)","sftp_timeout",False,None)]
         for r,(lab,key,pw,browse) in enumerate(fields): self._row(box,r,lab,self.vars[key],password=pw,browse=browse)
-        ttk.Checkbutton(box,text="Trust server key on first successful connection",variable=self.vars["sftp_trust_on_first_use"]).grid(row=10,column=1,sticky="w",padx=8,pady=6)
+        ttk.Checkbutton(box,text="Trust server key on first successful connection",variable=self.vars["sftp_trust_on_first_use"]).grid(row=9,column=1,sticky="w",padx=8,pady=6)
         ttk.Button(tab,text="Test SFTP connection",command=self._test_sftp).pack(anchor="w",padx=20,pady=(10,4))
         ttk.Label(tab,textvariable=self.sftp_test_status,wraplength=720).pack(anchor="w",padx=20,pady=(0,10))
 
     def _review_tab(self):
         tab=ttk.Frame(self.notebook); self.notebook.add(tab,text="4. Review")
-        ttk.Label(tab,text="Review the settings, then click Save configuration. Passwords remain only in the local config.py file.",wraplength=700).pack(anchor="w",padx=20,pady=14)
+        ttk.Label(tab,text="Review the settings, then click Save configuration. Passwords remain only in the local config.json file.",wraplength=700).pack(anchor="w",padx=20,pady=14)
         self.review=tk.Text(tab,height=24,wrap="word",state="disabled"); self.review.pack(fill="both",expand=True,padx=20,pady=10)
         self.notebook.bind("<<NotebookTabChanged>>",lambda _e:self._refresh_review())
 
@@ -391,12 +369,21 @@ class SetupWizard(tk.Tk):
             missing=[n for n,val in [("SFTP host",v["sftp_host"]),("SFTP username",v["sftp_username"]),("Remote public directory",v["sftp_remote_public_dir"]),("Remote private directory",v["sftp_remote_private_dir"])] if not str(val).strip()]
             if missing: messagebox.showerror("Configuration","Missing: "+", ".join(missing)); return
             if not v["sftp_password"] and not v["sftp_private_key_file"]: messagebox.showerror("Configuration","Enter an SFTP password or private key."); return
-        if self.config_path.exists():
-            try: shutil.copy2(self.config_path,self.config_path.with_suffix(".py.bak"))
-            except OSError as exc: messagebox.showerror("Configuration",f"Could not create config backup:\n{exc}"); return
-        try:self.config_path.write_text(build_config(v),encoding="utf-8",newline="\n")
-        except OSError as exc: messagebox.showerror("Configuration",f"Could not write config.py:\n{exc}"); return
-        self.result=True; messagebox.showinfo("SongSync setup","Configuration saved successfully.\n\nSongSync will now continue with this configuration."); self.destroy()
+        try:
+            backup_path = write_json_config(self.config_path, build_config(v))
+        except (OSError, TypeError, ValueError) as exc:
+            messagebox.showerror(
+                "Configuration",
+                f"Could not replace config.json:\n{exc}",
+            )
+            return
+        message = "Configuration saved successfully."
+        if backup_path is not None:
+            message += "\n\nThe previous file was saved as config.json.bak."
+        message += "\n\nSongSync will now continue with this configuration."
+        self.result = True
+        messagebox.showinfo("SongSync setup", message)
+        self.destroy()
     def _cancel(self): self.result=False; self.destroy()
 
 
